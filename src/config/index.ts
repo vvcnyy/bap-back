@@ -35,7 +35,7 @@ export const CONFIG = {
       COUNT: 3,
       BASE_DELAY: 2000,
     },
-    USE_PUPPETEER: false,
+    USE_PUPPETEER: true,
   },
   REFRESH: {
     SCHEDULE: [
