@@ -13,8 +13,9 @@ export const CONFIG = {
     HOST: process.env.HOST || 'localhost',
   },
   WEBSITE: {
-    BASE_URL: 'https://www.dimigo.hs.kr/index.php',
-    CAFETERIA_PATH: 'school_cafeteria',
+    BASE_URL: 'https://ansandongsan-h.goeas.kr/ansandongsan-h/na/ntt/selectNttList.do',
+    MENU_ID: '10284',
+    BOARD_ID: '5231',
     PAGE_RANGE: {
       START: 1,
       END: 1,

@@ -11,7 +11,7 @@ function normalizeFullWidthCharacters(text: string): string {
     .replace(/[\u201C\u201D]/g, '"');
 }
 
-let browserInstance: import('puppeteer-core').Browser | null = null;
+let browserInstance: any = null;
 
 async function getBrowser() {
   if (!browserInstance) {
@@ -41,14 +41,53 @@ export class HttpError extends Error {
 
 async function fetchWithPuppeteer(
   url: string,
-  options: RequestInit & { timeout?: number; solveCaptcha?: boolean } = {},
+  options: RequestInit & { timeout?: number; solveCaptcha?: boolean; formData?: Record<string, string> } = {},
 ): Promise<Response> {
-  const { solveCaptcha = false } = options;
+  const { solveCaptcha = false, formData, method = 'GET' } = options;
   const browser = await getBrowser();
+  if (!browser) {
+    throw new Error('Failed to create browser instance');
+  }
   const page = await browser.newPage();
   const fetchLogger = logger.operation('fetch');
 
   try {
+    // POST
+    if (method.toUpperCase() === 'POST' || formData) {
+      await page.goto(url, { waitUntil: 'networkidle2' });
+
+      const content = await page.evaluate(async (fetchUrl: string | URL | Request, fetchFormData: string | Record<string, string> | string[][] | URLSearchParams | undefined, fetchHeaders: HeadersInit | undefined) => {
+        const body = new URLSearchParams(fetchFormData).toString();
+        const response = await fetch(fetchUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            ...fetchHeaders,
+          },
+          body,
+        });
+        return await response.text();
+      }, url, formData || {}, options.headers || {});
+
+      const normalizedContent = normalizeFullWidthCharacters(content);
+
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers(),
+        url,
+        json: async () => JSON.parse(normalizedContent),
+        text: async () => normalizedContent,
+        blob: async () => new Blob([normalizedContent]),
+        arrayBuffer: async () => new TextEncoder().encode(normalizedContent).buffer,
+        clone: function () {
+          return { ...this };
+        },
+      } as Response;
+    }
+
+    // GET
     await page.goto(url, { waitUntil: 'networkidle2' });
 
     if (solveCaptcha) {
@@ -90,18 +129,30 @@ async function fetchWithPuppeteer(
   }
 }
 
-async function fetchWithNative(url: string, options: RequestInit & { timeout?: number } = {}): Promise<Response> {
-  const { timeout = 30000, ...fetchOptions } = options;
+async function fetchWithNative(url: string, options: RequestInit & { timeout?: number; formData?: Record<string, string> } = {}): Promise<Response> {
+  const { timeout = 30000, formData, ...fetchOptions } = options;
   const fetchLogger = logger.operation('fetch');
 
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    const response = await fetch(url, {
+    // POST
+    const requestOptions: RequestInit = {
       ...fetchOptions,
       signal: controller.signal,
-    });
+    };
+
+    if (formData) {
+      requestOptions.method = 'POST';
+      requestOptions.body = new URLSearchParams(formData).toString();
+      requestOptions.headers = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        ...fetchOptions.headers,
+      };
+    }
+
+    const response = await fetch(url, requestOptions);
 
     clearTimeout(timeoutId);
 
@@ -121,7 +172,7 @@ async function fetchWithNative(url: string, options: RequestInit & { timeout?: n
 
 async function fetchWithTimeout(
   url: string,
-  options: RequestInit & { timeout?: number; solveCaptcha?: boolean } = {},
+  options: RequestInit & { timeout?: number; solveCaptcha?: boolean; formData?: Record<string, string> } = {},
 ): Promise<Response> {
   if (CONFIG.HTTP.USE_PUPPETEER) {
     return fetchWithPuppeteer(url, options);
@@ -136,6 +187,7 @@ export async function fetchWithRetry<T>(
     retries?: number;
     baseDelay?: number;
     solveCaptcha?: boolean;
+    formData?: Record<string, string>;
     parser?: (response: Response) => Promise<T>;
   } = {},
 ): Promise<T> {
@@ -143,6 +195,7 @@ export async function fetchWithRetry<T>(
     retries = CONFIG.HTTP.RETRY.COUNT,
     baseDelay = CONFIG.HTTP.RETRY.BASE_DELAY,
     solveCaptcha = false,
+    formData,
     parser = (response) => response.json() as Promise<T>,
     ...fetchOptions
   } = options;
@@ -161,6 +214,7 @@ export async function fetchWithRetry<T>(
       const response = await fetchWithTimeout(url, {
         ...fetchOptions,
         solveCaptcha: CONFIG.HTTP.USE_PUPPETEER ? solveCaptcha : false,
+        formData,
       });
       return await parser(response);
     } catch (error) {

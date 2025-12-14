@@ -35,25 +35,42 @@ export async function getLatestMenuPosts(): Promise<MenuPost[]> {
 
   try {
     for (let page = CONFIG.WEBSITE.PAGE_RANGE.START; page <= CONFIG.WEBSITE.PAGE_RANGE.END; page++) {
-      const url = `${CONFIG.WEBSITE.BASE_URL}?mid=${CONFIG.WEBSITE.CAFETERIA_PATH}&page=${page}`;
-
-      const html = await fetchWithRetry<string>(url, {
+      const html = await fetchWithRetry<string>(CONFIG.WEBSITE.BASE_URL, {
+        formData: {
+          "currPage": page.toString(),
+          "listUseAt": "Y",
+          "excpClsdrMberId": "N",
+          "manageAt": "N",
+          "xssChk": "N",
+          "confmUseAt": "N",
+          "sysId": "ansandongsan-h",
+          "menuTy": "BBS",
+          "cntntsId": CONFIG.WEBSITE.BOARD_ID,
+          "bbsTy": "NORMAL",
+          "newHour": "24",
+          "maxSn": "30",
+          "noticeAt": "Y",
+          "menuId": CONFIG.WEBSITE.MENU_ID,
+          "mi": CONFIG.WEBSITE.MENU_ID,
+          "useAt": "Y",
+          "minSn": "20",
+          "bbsId": CONFIG.WEBSITE.BOARD_ID
+        },
         parser: async (response) => response.text(),
         solveCaptcha: true,
       });
 
       const $ = cheerio.load(html);
-      const posts = $('.scContent tbody tr')
+      const posts = $('.BD_list tbody tr')
         .map((_, row) => {
-          const linkElement = $(row).find('.scEllipsis a');
-          const link = linkElement.attr('href');
-          const documentId = link?.match(/document_srl=(\d+)/)?.[1];
+          const linkElement = $(row).find('.ta_l a');
+          const documentId = linkElement.attr('data-id');
           if (!documentId) return null;
 
           const title = linkElement.text().trim();
           if (!title.includes('식단')) return null;
 
-          const registrationDate = $(row).find('td:nth-child(5)').text().trim();
+          const registrationDate = linkElement.text().trim();
 
           const menuDate = calculateMenuDate(title, registrationDate);
           if (!menuDate) return null;
@@ -128,14 +145,15 @@ async function getMealData(documentId: string, dateKey: string): Promise<Cafeter
   const timer = mealLogger.time();
 
   try {
-    const url = `${CONFIG.WEBSITE.BASE_URL}?mid=${CONFIG.WEBSITE.CAFETERIA_PATH}&document_srl=${documentId}`;
+    const url = `${CONFIG.WEBSITE.BASE_URL}?mi=${CONFIG.WEBSITE.MENU_ID}&bbsId=${CONFIG.WEBSITE.BOARD_ID}&nttSn=${documentId}`;
 
+    // 여기 수정 필요
     const html = await fetchWithRetry<string>(url, {
       parser: async (response) => response.text(),
     });
 
     const $ = cheerio.load(html);
-    const contentLines = $('.xe_content')
+    const contentLines = $('.bbsV_cont span')
       .text()
       .split('\n')
       .map((line) => line.trim())
@@ -193,6 +211,7 @@ async function getMealData(documentId: string, dateKey: string): Promise<Cafeter
       }
     }
 
+    // 수정 필요
     $('.xe_content img').each((_, element) => {
       const imgSrc = $(element).attr('src');
       const imgAlt = $(element).attr('alt')?.toLowerCase() || '';
